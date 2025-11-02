@@ -77,7 +77,7 @@ def merge_types(types):
     Detect Order: int -> float -> datetime -> bool -> str
     """
     types = {t for t in types if t is not type(None)}
-    if not type:
+    if not types:
         return type(None)
     if types == {int}:
         return int
@@ -102,6 +102,47 @@ def detect_column_types(rows):
             col_type_sets[i].add(detect_type(val))
 
     return [merge_types(s) for s in col_type_sets]
+
+def outlier_mask_iqr(series):
+    """
+    Return a boolean series, indicating True for values in the series that are outliers
+    """
+    q1 = series.quantile(0.25)
+    q3 = series.quantile(0.75)
+    iqr = q3 - q1
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+    return (series < lower_bound) | (series > upper_bound)
+
+def remove_outliers(df):
+    """
+    Returns a DataFrame with all rows containing numeric outliers removed
+    """
+    numeric_cols = df.select_dtypes(include="number").columns
+
+    global_outlier_mask = pd.Series(False, index=df.index)
+
+    for col in numeric_cols:
+        if col == "ID": # ignore ID col
+            break
+
+        col_mask = outlier_mask_iqr(df[col].dropna())
+        # reindex incase NaNs were dropped
+        col_mask = col_mask.reindex(df.index, fill_value=False)
+
+        # zero is an outlier by default
+        zero_mask = df[col] == 0
+        col_mask = col_mask | zero_mask
+
+        if col_mask.any():
+            print(f"Removed {col_mask.sum()} rows because of {col}")
+
+        global_outlier_mask = global_outlier_mask | col_mask
+
+    # return rows that aren't outliers
+    df_clean = df[~global_outlier_mask].copy()
+    print(global_outlier_mask)
+    return df_clean
 
 def print_num_stats(df):
     """
@@ -129,7 +170,6 @@ def plot_graph(df):
     print("--- Choose Y Axis ---")
     y_axis = choose_from_list(options)
 
-    plot_options = []
     df.plot(x=x_axis,y=y_axis, kind='scatter', figsize=(8,5))
     plt.title(f"{x_axis} / {y_axis}")
     plt.xlabel(x_axis)
@@ -150,7 +190,7 @@ if __name__ == "__main__":
     cols, rows = extract_cols_rows(csv_file)
     data_types = detect_column_types(rows)
 
-    df = pd.DataFrame(data=rows, columns=cols)
+    df = pd.DataFrame(data=rows, columns=cols)  
     
     # convert columns to detected data types
     for col, dt in zip(cols, data_types):
@@ -164,6 +204,8 @@ if __name__ == "__main__":
             df[col] = df[col].str.lower().map({'true': True, 'false': False, 'yes': True, 'no': False})
         else:
             df[col] = df[col].astype("string")
+
+    df = remove_outliers(df)
 
     print_num_stats(df)
 
