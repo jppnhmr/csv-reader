@@ -44,6 +44,21 @@ def extract_cols_rows(csv_file):
 
     return columns, rows
 
+def clean_rows(cols, rows):
+    clean_rows = []
+    count = 0
+    
+    for row in rows:
+        # Row with too many or too few columns
+        if len(row) > len(cols) or len(row) < len(cols):
+            count += 1
+            continue
+
+        clean_rows.append(row)
+
+    print(f"Removed {count} unclean rows.")
+    return clean_rows
+
 def detect_type(value):
     val = value.strip()
 
@@ -133,10 +148,6 @@ def remove_outliers(df):
         # reindex incase NaNs were dropped
         col_mask = col_mask.reindex(df.index, fill_value=False)
 
-        # zero is an outlier by default
-        zero_mask = df[col] == 0
-        col_mask = col_mask | zero_mask
-
         #if col_mask.any():
             #print(f"Removed {col_mask.sum()} rows because of {col}")
 
@@ -146,69 +157,23 @@ def remove_outliers(df):
     df_clean = df[~global_outlier_mask].copy()
     return df_clean
 
-def print_num_stats(df):
+def get_num_stats(df):
     """
-    Print the Mean, Median & Mode of all number cols.
+    Returns the Mean, Median & Mode of all number cols.
     """
     df = df.select_dtypes(include='number')
 
-    print("--- Number Stats ---")
+    num_stats = ""
     for col_name in df.describe():
         col = df[col_name]
-        print(f"""
+        col_stats = f"""
 {col_name}
 Mean: {col.mean()}
 Median: {col.median()}
 Mode: {col.mode().to_list()}
-""")
-
-def write_num_stats(df, file_name):
-    """
-    Write the Mean, Median & Mode of all number cols to file.
-    """
-
-    df = df.select_dtypes(include="number")
-
-    with open(file_name, "w") as f:
-        for col_name in df.describe():
-            col = df[col_name]
-            f.write(f"""
-{col_name}
-Mean: {col.mean()}
-Median: {col.median()}
-Mode: {col.mode().to_list()}
-""")
-
-def plot_scatter_graph(df):
-
-    df = df.select_dtypes(include='number')
-
-    options = df.columns
-    print("--- Choose X Axis ---")
-    x_axis = choose_from_list(options)
-    print("--- Choose Y Axis ---")
-    y_axis = choose_from_list(options)
-
-    df.plot(x=x_axis,y=y_axis, kind='scatter', figsize=(8,5))
-    plt.title(f"{x_axis} / {y_axis}")
-    plt.xlabel(x_axis)
-    plt.ylabel(y_axis)
-    plt.savefig(fname=f"{GRAPH_FOLDER}/sactter_graph_{x_axis}_by_{y_axis}")
-
-def plot_histogram(df):
-
-    df = df.select_dtypes(include="number")
-
-    options = df.columns
-    print("--- Choose Column ---")
-    choice = df[choose_from_list(options)]
-
-    choice.hist(figsize=(8,5))
-    plt.title(f'{choice.name} Distribution')
-    plt.xlabel(choice.name)
-    plt.ylabel("frequency")
-    plt.savefig(fname=f"{GRAPH_FOLDER}/histogram_{choice.name}")
-
+"""
+        num_stats += col_stats
+    return num_stats
 
 if __name__ == "__main__":
 
@@ -222,6 +187,7 @@ if __name__ == "__main__":
     csv_file = choose_from_list(csv_files)
 
     cols, rows = extract_cols_rows(csv_file)
+    rows = clean_rows(cols, rows)
     data_types = detect_column_types(rows)
 
     df = pd.DataFrame(data=rows, columns=cols)  
@@ -241,19 +207,52 @@ if __name__ == "__main__":
 
     df = remove_outliers(df)
 
-    if not (os.path.exists(GRAPH_FOLDER)):
-         os.makedirs(GRAPH_FOLDER)
+    filename = csv_file[:-4]
+    if not (os.path.exists(filename)):
+        os.makedirs(filename)
+    if not (os.path.exists(f"{filename}/{GRAPH_FOLDER}")):
+        os.makedirs(f"{filename}/{GRAPH_FOLDER}")
 
-    if not (os.path.exists(STATS_FOLDER)):
-         os.makedirs(STATS_FOLDER)
+    # Create histogram for each Numeric value
+    df_num = df.select_dtypes(include="number")
+    for col in df_num.columns:
+        if col == "id" or col == "ID": # ignore ID cols
+            continue
+        obj = df_num[col]
+        obj.hist(figsize=(8,5))
+        plt.title(f'{col} Distribution')
+        plt.xlabel(col)
+        plt.ylabel("frequency")
+        plt.savefig(fname=f"{filename}/{GRAPH_FOLDER}/{col}_histogram")
+        plt.close()
 
-    #print_num_stats(df)
-    write_num_stats(df, f"{STATS_FOLDER}/{csv_file[:-4]}_stats")
+    # Create HTML summary
 
-    graph_options = ["Scatter", "Histogram"]
-    graph_choice = choose_from_list(graph_options)
+    # Stats
+    html_stats = get_num_stats(df)
+    # Graphs
+    html_graphs = ""
+    graphs = os.listdir(f"{filename}/{GRAPH_FOLDER}")
+    for graph in graphs:
+        html_graphs += f'<img src="{GRAPH_FOLDER}/{graph}">'
 
-    if (graph_choice == "Scatter"):
-        plot_scatter_graph(df)
-    elif (graph_choice == "Histogram"):
-        plot_histogram(df)
+    html_text = f"""
+<html>
+<head>
+    <title>CSV Analysis Report: {filename}</title>
+</head>
+<body>
+    <h1>Analysis Results</h1>
+    
+    <h2>Statistics</h2>
+    <pre>{html_stats}</pre>
+    
+    <h2>Graphs</h2>
+    {html_graphs}
+</body>
+</html>
+"""
+    with open(f"{filename}/{filename}_summary.html", "w") as f:
+        f.write(html_text)
+
+    print("--- Analysis Complete ---")  
