@@ -1,6 +1,7 @@
 import os
 import csv
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 directory_path = os.path.dirname(os.path.abspath(__file__))
+GRAPH_FOLDER = "graphs"
+STATS_FOLDER = "stats"
 
 def choose_from_list(vals):
     while True:
@@ -124,7 +127,7 @@ def remove_outliers(df):
 
     for col in numeric_cols:
         if col == "ID": # ignore ID col
-            break
+            continue
 
         col_mask = outlier_mask_iqr(df[col].dropna())
         # reindex incase NaNs were dropped
@@ -134,19 +137,18 @@ def remove_outliers(df):
         zero_mask = df[col] == 0
         col_mask = col_mask | zero_mask
 
-        if col_mask.any():
-            print(f"Removed {col_mask.sum()} rows because of {col}")
+        #if col_mask.any():
+            #print(f"Removed {col_mask.sum()} rows because of {col}")
 
         global_outlier_mask = global_outlier_mask | col_mask
 
     # return rows that aren't outliers
     df_clean = df[~global_outlier_mask].copy()
-    print(global_outlier_mask)
     return df_clean
 
 def print_num_stats(df):
     """
-    Print the Mean, Median & Mode of all number cols, excluding ID.
+    Print the Mean, Median & Mode of all number cols.
     """
     df = df.select_dtypes(include='number')
 
@@ -159,8 +161,25 @@ Mean: {col.mean()}
 Median: {col.median()}
 Mode: {col.mode().to_list()}
 """)
-          
-def plot_graph(df):
+
+def write_num_stats(df, file_name):
+    """
+    Write the Mean, Median & Mode of all number cols to file.
+    """
+
+    df = df.select_dtypes(include="number")
+
+    with open(file_name, "w") as f:
+        for col_name in df.describe():
+            col = df[col_name]
+            f.write(f"""
+{col_name}
+Mean: {col.mean()}
+Median: {col.median()}
+Mode: {col.mode().to_list()}
+""")
+
+def plot_scatter_graph(df):
 
     df = df.select_dtypes(include='number')
 
@@ -174,7 +193,22 @@ def plot_graph(df):
     plt.title(f"{x_axis} / {y_axis}")
     plt.xlabel(x_axis)
     plt.ylabel(y_axis)
-    plt.show()
+    plt.savefig(fname=f"{GRAPH_FOLDER}/sactter_graph_{x_axis}_by_{y_axis}")
+
+def plot_histogram(df):
+
+    df = df.select_dtypes(include="number")
+
+    options = df.columns
+    print("--- Choose Column ---")
+    choice = df[choose_from_list(options)]
+
+    choice.hist(figsize=(8,5))
+    plt.title(f'{choice.name} Distribution')
+    plt.xlabel(choice.name)
+    plt.ylabel("frequency")
+    plt.savefig(fname=f"{GRAPH_FOLDER}/histogram_{choice.name}")
+
 
 if __name__ == "__main__":
 
@@ -207,13 +241,19 @@ if __name__ == "__main__":
 
     df = remove_outliers(df)
 
-    print_num_stats(df)
+    if not (os.path.exists(GRAPH_FOLDER)):
+         os.makedirs(GRAPH_FOLDER)
 
-    plot_graph(df)
+    if not (os.path.exists(STATS_FOLDER)):
+         os.makedirs(STATS_FOLDER)
 
+    #print_num_stats(df)
+    write_num_stats(df, f"{STATS_FOLDER}/{csv_file[:-4]}_stats")
 
+    graph_options = ["Scatter", "Histogram"]
+    graph_choice = choose_from_list(graph_options)
 
-
-
-    
-
+    if (graph_choice == "Scatter"):
+        plot_scatter_graph(df)
+    elif (graph_choice == "Histogram"):
+        plot_histogram(df)
